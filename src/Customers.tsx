@@ -13,9 +13,15 @@ import type { Client } from "./App";
 export function PageClients({
   clients,
   setClients,
+  apiPostClient,
+  apiPatchClient,
+  apiDeleteClient,
 }: {
-  clients:    Client[];
-  setClients: (fn: (prev: Client[]) => Client[]) => void;
+  clients:         Client[];
+  setClients:      (fn: (prev: Client[]) => Client[]) => void;
+  apiPostClient:   (b: any) => Promise<any>;
+  apiPatchClient:  (id: number, b: any) => Promise<any>;
+  apiDeleteClient: (id: number) => Promise<void>;
 }) {
   const [q,         setQ]         = useState("");
   const [showAdd,   setShowAdd]   = useState(false);
@@ -46,42 +52,55 @@ export function PageClients({
     return now.getTime() - d.getTime() < 7 * 24 * 3600 * 1000;
   }).length;
 
-  function addClient() {
+  // ── addClient — POST в API ────────────────────────────────────────
+  async function addClient() {
     if (!form.name) return;
-    setClients(prev => [
-      ...prev,
-      {
-        id:        Date.now(),
-        name:      form.name,
-        phone:     form.phone,
-        email:     form.email,
-        gender:    form.gender,
-        birthday:  form.birthday,
-        comment:   form.comment,
-        debt:      Number(form.debt) || 0,
-        repaid:    0,
-        group:     form.group,
-        sum:       0,
-        lastBuy:   null,
-        createdAt: Date.now(),
-        created:   toDay(),
-      },
-    ]);
-    setForm({
-      name: "", phone: "", email: "",
-      gender: "", birthday: "", comment: "", debt: 0, group: "",
-    });
-    setShowAdd(false);
+    try {
+      const saved = await apiPostClient({
+        name:     form.name,
+        phone:    form.phone,
+        email:    form.email,
+        gender:   form.gender,
+        birthday: form.birthday,
+        comment:  form.comment,
+        debt:     Number(form.debt) || 0,
+        repaid:   0,
+        group:    form.group,
+        sum:      0,
+        lastBuy:  null,
+        created:  toDay(),
+      });
+      setClients(prev => [saved, ...prev]);
+      setForm({
+        name: "", phone: "", email: "",
+        gender: "", birthday: "", comment: "", debt: 0, group: "",
+      });
+      setShowAdd(false);
+    } catch (e: any) {
+      alert(`Ошибка: ${e.message}`);
+    }
   }
 
-  function saveEdit(c: Client) {
-    setClients(prev => prev.map(x => (x.id === c.id ? { ...x, ...c } : x)));
-    setShowEdit(null);
+  // ── saveEdit — PATCH ──────────────────────────────────────────────
+  async function saveEdit(c: Client) {
+    try {
+      const saved = await apiPatchClient(c.id, c);
+      setClients(prev => prev.map(x => (x.id === c.id ? saved : x)));
+      setShowEdit(null);
+    } catch (e: any) {
+      alert(`Ошибка: ${e.message}`);
+    }
   }
 
-  function deleteClient(id: number) {
-    setClients(prev => prev.filter(c => c.id !== id));
-    setShowEdit(null);
+  // ── deleteClient — DELETE ─────────────────────────────────────────
+  async function deleteClient(id: number) {
+    try {
+      await apiDeleteClient(id);
+      setClients(prev => prev.filter(c => c.id !== id));
+      setShowEdit(null);
+    } catch (e: any) {
+      alert(`Ошибка: ${e.message}`);
+    }
   }
 
   return (
@@ -104,10 +123,10 @@ export function PageClients({
         {/* Статистика */}
         {showStats && (
           <Grid2>
-            <StatCard label="Всего клиентов"       value={`${clients.length} клиентов`} ico="👥" />
-            <StatCard label="Последняя неделя"      value={`${thisWeek} клиентов`}       ico="📅" />
-            <StatCard label="Не возвращающиеся"     value="0 клиентов"                   ico="👤" />
-            <StatCard label="Дни рождения"          value="0 клиентов"                   ico="🎁" />
+            <StatCard label="Всего клиентов"   value={`${clients.length} клиентов`} ico="👥" />
+            <StatCard label="Последняя неделя" value={`${thisWeek} клиентов`}       ico="📅" />
+            <StatCard label="Не возвращающиеся"value="0 клиентов"                   ico="👤" />
+            <StatCard label="Дни рождения"     value="0 клиентов"                   ico="🎁" />
           </Grid2>
         )}
 
@@ -186,12 +205,8 @@ export function PageClients({
                     <td style={{ ...Sc.td, color: "#aaa" }}>—</td>
                     <td style={{ ...Sc.td, fontWeight: 600 }}>{fmt(c.sum ?? 0)} ₸</td>
                     <td style={{ ...Sc.td, color: "#aaa" }}>{c.lastBuy ?? "—"}</td>
-                    <td style={{ ...Sc.td, color: "#aaa" }}>
-                      {c.birthday || "—"}
-                    </td>
-                    <td style={{ ...Sc.td, fontSize: 11, color: "#aaa" }}>
-                      {c.created}
-                    </td>
+                    <td style={{ ...Sc.td, color: "#aaa" }}>{c.birthday || "—"}</td>
+                    <td style={{ ...Sc.td, fontSize: 11, color: "#aaa" }}>{c.created}</td>
                   </tr>
                 ))
               )}
@@ -425,9 +440,9 @@ type Tag = {
 };
 
 export function PageGroups({ clients }: { clients: Client[] }) {
-  const [subTab,   setSubTab]   = useState("groups");
-  const [showAdd,  setShowAdd]  = useState(false);
-  const [showStats,setShowStats]= useState(true);
+  const [subTab,    setSubTab]    = useState("groups");
+  const [showAdd,   setShowAdd]   = useState(false);
+  const [showStats, setShowStats] = useState(true);
 
   const [groups, setGroups] = useState<Group[]>([
     {
@@ -483,7 +498,6 @@ export function PageGroups({ clients }: { clients: Client[] }) {
 
       <div style={{ padding: "12px 14px" }}>
 
-        {/* Статистика */}
         {showStats && (
           <Grid2>
             <StatCard label="Кол-во групп" value={`${groups.length} шт`} ico="👥" />
@@ -491,7 +505,6 @@ export function PageGroups({ clients }: { clients: Client[] }) {
           </Grid2>
         )}
 
-        {/* Переключатель Группы / Теги */}
         <div style={{ display: "flex", marginBottom: 14 }}>
           {[["groups", "Группы"], ["tags", "Теги"]].map(([k, l]) => (
             <button
@@ -510,7 +523,6 @@ export function PageGroups({ clients }: { clients: Client[] }) {
           ))}
         </div>
 
-        {/* Поиск + Создать */}
         <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
           <SearchBar value="" onChange={() => {}} placeholder="ID, тип" />
           <button
@@ -521,7 +533,6 @@ export function PageGroups({ clients }: { clients: Client[] }) {
           </button>
         </div>
 
-        {/* Таблица групп */}
         {subTab === "groups" && (
           <div style={{ ...Sc.card, padding: 0 }}>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -544,12 +555,8 @@ export function PageGroups({ clients }: { clients: Client[] }) {
                       {g.name}
                     </td>
                     <td style={{ ...Sc.td, color: "#aaa" }}>{g.bonus}</td>
-                    <td style={{ ...Sc.td, color: OR, fontWeight: 700 }}>
-                      {g.clientCount}
-                    </td>
-                    <td style={Sc.td}>
-                      <span style={mkBadge("gr")}>{g.status}</span>
-                    </td>
+                    <td style={{ ...Sc.td, color: OR, fontWeight: 700 }}>{g.clientCount}</td>
+                    <td style={Sc.td}><span style={mkBadge("gr")}>{g.status}</span></td>
                     <td style={{ ...Sc.td, fontSize: 12, color: "#aaa" }}>{g.created}</td>
                   </tr>
                 ))}
@@ -567,7 +574,6 @@ export function PageGroups({ clients }: { clients: Client[] }) {
           </div>
         )}
 
-        {/* Таблица тегов */}
         {subTab === "tags" && (
           <div style={{ ...Sc.card, padding: 0 }}>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -589,9 +595,7 @@ export function PageGroups({ clients }: { clients: Client[] }) {
                     <td style={{ ...Sc.td, color: OR, fontWeight: 600, cursor: "pointer" }}>
                       {t.name}
                     </td>
-                    <td style={{ ...Sc.td, color: OR, fontWeight: 700 }}>
-                      {t.clientCount}
-                    </td>
+                    <td style={{ ...Sc.td, color: OR, fontWeight: 700 }}>{t.clientCount}</td>
                     <td style={{ ...Sc.td, fontSize: 12, color: "#aaa" }}>{t.created}</td>
                   </tr>
                 ))}
@@ -602,11 +606,8 @@ export function PageGroups({ clients }: { clients: Client[] }) {
         )}
       </div>
 
-      {/* Modal: Создать группу / тег */}
       {showAdd && (
         <Modal title="Создать" onClose={() => setShowAdd(false)} width={400}>
-
-          {/* Тип */}
           <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
             {[["group", "Группа"], ["tag", "Тег"]].map(([k, l]) => (
               <button
@@ -677,16 +678,13 @@ export function PageLoyalty() {
     { id: 3, name: "Платина", minSum: 150000, discount: 15, bonus: 0 },
   ]);
 
-  const [showAdd, setShowAdd]   = useState(false);
-  const [showEdit,setShowEdit]  = useState<LoyaltyLevel | null>(null);
-  const [newLevel,setNewLevel]  = useState({ name: "", minSum: 0, discount: 0, bonus: 0 });
+  const [showAdd,  setShowAdd]  = useState(false);
+  const [showEdit, setShowEdit] = useState<LoyaltyLevel | null>(null);
+  const [newLevel, setNewLevel] = useState({ name: "", minSum: 0, discount: 0, bonus: 0 });
 
   function addLevel() {
     if (!newLevel.name) return;
-    setLevels(prev => [
-      ...prev,
-      { id: Date.now(), ...newLevel },
-    ]);
+    setLevels(prev => [...prev, { id: Date.now(), ...newLevel }]);
     setNewLevel({ name: "", minSum: 0, discount: 0, bonus: 0 });
     setShowAdd(false);
   }
@@ -715,7 +713,6 @@ export function PageLoyalty() {
 
       <div style={{ padding: "12px 14px" }}>
 
-        {/* Тип программы */}
         <div style={Sc.card}>
           <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 12 }}>
             Тип программы лояльности
@@ -744,17 +741,13 @@ export function PageLoyalty() {
           </div>
         </div>
 
-        {/* Уровни */}
         <div style={Sc.card}>
           <div style={{
             display: "flex", justifyContent: "space-between",
             alignItems: "center", marginBottom: 14,
           }}>
             <div style={{ fontSize: 13, fontWeight: 700 }}>Уровни программы</div>
-            <button
-              onClick={() => setShowAdd(true)}
-              style={mkBtn("s", { fontSize: 12 })}
-            >
+            <button onClick={() => setShowAdd(true)} style={mkBtn("s", { fontSize: 12 })}>
               + Добавить уровень
             </button>
           </div>
@@ -778,8 +771,7 @@ export function PageLoyalty() {
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <div style={{
                         width: 12, height: 12, borderRadius: 50,
-                        background: levelColors[idx] ?? OR,
-                        flexShrink: 0,
+                        background: levelColors[idx] ?? OR, flexShrink: 0,
                       }} />
                       <span
                         style={{ fontWeight: 600, color: OR, cursor: "pointer" }}
@@ -813,11 +805,7 @@ export function PageLoyalty() {
           </table>
 
           {levels.length === 0 && (
-            <EmptyState
-              icon="🏆"
-              title="Уровней нет"
-              sub="Добавьте первый уровень"
-            />
+            <EmptyState icon="🏆" title="Уровней нет" sub="Добавьте первый уровень" />
           )}
 
           <div style={{ marginTop: 14, display: "flex", justifyContent: "flex-end" }}>
@@ -826,7 +814,6 @@ export function PageLoyalty() {
         </div>
       </div>
 
-      {/* Modal: Добавить уровень */}
       {showAdd && (
         <Modal title="Новый уровень" onClose={() => setShowAdd(false)} width={400}>
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -874,7 +861,6 @@ export function PageLoyalty() {
         </Modal>
       )}
 
-      {/* Modal: Редактировать уровень */}
       {showEdit && (
         <Modal title={`Уровень: ${showEdit.name}`} onClose={() => setShowEdit(null)} width={400}>
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
