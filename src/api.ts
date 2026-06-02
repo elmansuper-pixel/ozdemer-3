@@ -1,7 +1,7 @@
 // src/api.ts
 // Все fetch-вызовы к серверу в одном месте.
 
-const BASE = "http://localhost:4000";
+const BASE = "http://85.198.89.116:4000";
 
 async function get<T>(url: string): Promise<T> {
   const r = await fetch(`${BASE}${url}`);
