@@ -1,24 +1,340 @@
-<!DOCTYPE html>
-<html lang="ru">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="OZD — система управления продажами" />
-    <title>OZD</title>
-    <style>
-      *, *::before, *::after { box-sizing: border-box; }
-      body {
-        margin: 0;
-        padding: 0;
-        font-family: system-ui, -apple-system, sans-serif;
-        -webkit-font-smoothing: antialiased;
-        background: #f4f4f6;
-      }
-      #root { min-height: 100vh; }
-    </style>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
-</html>
+const express    = require("express");
+const Database   = require("better-sqlite3");
+const cors       = require("cors");
+const path       = require("path");
+
+const app = express();
+const DB_PATH = path.join(__dirname, "crm.db");
+const db  = new Database(DB_PATH);
+
+app.use(cors());
+app.use(express.json());
+
+// ─── Инициализация таблиц ─────────────────────────────────────────────────────
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS clients (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    name      TEXT    NOT NULL,
+    phone     TEXT    DEFAULT '',
+    email     TEXT    DEFAULT '',
+    gender    TEXT    DEFAULT '',
+    birthday  TEXT    DEFAULT '',
+    comment   TEXT    DEFAULT '',
+    debt      REAL    DEFAULT 0,
+    repaid    REAL    DEFAULT 0,
+    grp       TEXT    DEFAULT '',
+    sum       REAL    DEFAULT 0,
+    last_buy  TEXT    DEFAULT NULL,
+    created   TEXT    NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS products (
+    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    art      TEXT    NOT NULL,
+    name     TEXT    NOT NULL,
+    cat      TEXT    DEFAULT '',
+    qty      REAL    DEFAULT 0,
+    retail   REAL    DEFAULT 0,
+    opt      REAL    DEFAULT 0,
+    cost     REAL    DEFAULT 0,
+    barcode  TEXT    DEFAULT ''
+  );
+
+  CREATE TABLE IF NOT EXISTS sales (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    rcp_id     TEXT    NOT NULL,
+    date       TEXT    NOT NULL,
+    time       TEXT    NOT NULL,
+    type       TEXT    NOT NULL DEFAULT 'продажа',
+    product_id INTEGER DEFAULT 0,
+    p_name     TEXT    DEFAULT '',
+    art        TEXT    DEFAULT '',
+    qty        REAL    DEFAULT 1,
+    price      REAL    DEFAULT 0,
+    total      REAL    DEFAULT 0,
+    cost       REAL    DEFAULT 0,
+    profit     REAL    DEFAULT 0,
+    pay        TEXT    DEFAULT 'cash',
+    pt         TEXT    DEFAULT 'retail',
+    discount   REAL    DEFAULT 0,
+    client_id  TEXT    DEFAULT '',
+    note       TEXT    DEFAULT ''
+  );
+
+  CREATE TABLE IF NOT EXISTS kassa_ops (
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    tp      TEXT    NOT NULL,
+    sum     REAL    NOT NULL,
+    stat    TEXT    DEFAULT '',
+    date    TEXT    NOT NULL,
+    cashier TEXT    DEFAULT 'Test Owner'
+  );
+`);
+
+// ─── Seed products если таблица пустая ───────────────────────────────────────
+
+const prodCount = db.prepare("SELECT COUNT(*) as c FROM products").get() as { c: number };
+if (prodCount.c === 0) {
+  const insert = db.prepare(`
+    INSERT INTO products (art,name,cat,qty,retail,opt,cost,barcode)
+    VALUES (@art,@name,@cat,@qty,@retail,@opt,@cost,@barcode)
+  `);
+  const seed = db.transaction((rows: any[]) => {
+    for (const r of rows) insert.run(r);
+  });
+  seed([
+    {art:"10001",name:"TESTA MEST 15KL",      cat:"TESTA MEST",   qty:40, retail:170000,opt:160000,cost:145000,barcode:"2002501487241"},
+    {art:"10002",name:"TESTA MEST 25KL",       cat:"TESTA MEST",   qty:40, retail:190000,opt:180000,cost:165000,barcode:""},
+    {art:"10003",name:"TESTA MEST 50KL",       cat:"TESTA MEST",   qty:10, retail:210000,opt:200000,cost:185000,barcode:""},
+    {art:"10004",name:"ozdemer JY-G22",         cat:"ozdemer",      qty:1,  retail:85000, opt:80000, cost:60000, barcode:""},
+    {art:"10005",name:"ozdemer YCT-22",         cat:"ozdemer",      qty:1,  retail:120000,opt:110000,cost:95000, barcode:""},
+    {art:"10006",name:"ozdemer JY-12",          cat:"ozdemer",      qty:10, retail:140000,opt:130000,cost:115000,barcode:""},
+    {art:"10007",name:"ozdemer Ozd-12Tank",     cat:"ozdemer",      qty:20, retail:190000,opt:180000,cost:165000,barcode:""},
+    {art:"10008",name:"ozdemer Ozd-22Tank",     cat:"ozdemer",      qty:30, retail:210000,opt:200000,cost:185000,barcode:""},
+    {art:"10009",name:"ozdemer Ozd-32Tank",     cat:"ozdemer",      qty:20, retail:230000,opt:220000,cost:205000,barcode:""},
+    {art:"10010",name:"ozdemer QL-22",          cat:"ozdemer",      qty:30, retail:260000,opt:250000,cost:235000,barcode:""},
+    {art:"10011",name:"ozdemer QL-32",          cat:"ozdemer",      qty:30, retail:270000,opt:260000,cost:245000,barcode:""},
+    {art:"10012",name:"sliser YCT-22",          cat:"sliser",       qty:15, retail:140000,opt:130000,cost:115000,barcode:""},
+    {art:"10013",name:"sliser HD-85",           cat:"sliser",       qty:25, retail:85000, opt:80000, cost:60000, barcode:""},
+    {art:"10014",name:"sliser JR-D",            cat:"sliser",       qty:25, retail:140000,opt:130000,cost:115000,barcode:""},
+    {art:"10015",name:"sliser JY-PS22",         cat:"sliser",       qty:1,  retail:350000,opt:340000,cost:325000,barcode:""},
+    {art:"10016",name:"sliser YC-20",           cat:"sliser",       qty:10, retail:120000,opt:110000,cost:95000, barcode:""},
+    {art:"10017",name:"SHPRET KLBSA 3L",        cat:"SHPRET KLBSA", qty:15, retail:80000, opt:75000, cost:55000, barcode:""},
+    {art:"10018",name:"CHUPER HD-180",          cat:"CHUPER",       qty:10, retail:75000, opt:70000, cost:50000, barcode:""},
+    {art:"10019",name:"CHUPER HD-230",          cat:"CHUPER",       qty:20, retail:85000, opt:80000, cost:60000, barcode:""},
+    {art:"10020",name:"CHUPER HD-280",          cat:"CHUPER",       qty:10, retail:90000, opt:85000, cost:65000, barcode:""},
+    {art:"10021",name:"TESTA RSKTKA HD-300",    cat:"TESTA RSKTKA", qty:20, retail:145000,opt:140000,cost:120000,barcode:""},
+    {art:"10022",name:"TESTA RSKTKA HD-300L",   cat:"TESTA RSKTKA", qty:15, retail:170000,opt:160000,cost:145000,barcode:""},
+    {art:"10023",name:"FRITUR 12L",             cat:"FRITUR",       qty:40, retail:70000, opt:60000, cost:45000, barcode:""},
+    {art:"10024",name:"FRITUR 40L",             cat:"FRITUR",       qty:15, retail:160000,opt:150000,cost:135000,barcode:""},
+    {art:"10025",name:"FRITUR 50L",             cat:"FRITUR",       qty:5,  retail:210000,opt:200000,cost:185000,barcode:""},
+    {art:"10026",name:"FRITUR 60L",             cat:"FRITUR",       qty:5,  retail:230000,opt:220000,cost:205000,barcode:""},
+    {art:"10027",name:"TITAN PRO 6KW 220V",     cat:"TITAN PRO",    qty:20, retail:95000, opt:90000, cost:70000, barcode:""},
+    {art:"10028",name:"TITAN PRO 12KW 380V",    cat:"TITAN PRO",    qty:15, retail:140000,opt:130000,cost:115000,barcode:""},
+  ]);
+}
+
+// ─── CLIENTS ─────────────────────────────────────────────────────────────────
+
+app.get("/api/clients", (_, res) => {
+  const rows = db.prepare("SELECT * FROM clients ORDER BY id DESC").all();
+  res.json(rows.map(dbClientToClient));
+});
+
+app.post("/api/clients", (req, res) => {
+  const b = req.body;
+  const stmt = db.prepare(`
+    INSERT INTO clients (name,phone,email,gender,birthday,comment,debt,repaid,grp,sum,last_buy,created)
+    VALUES (@name,@phone,@email,@gender,@birthday,@comment,@debt,@repaid,@grp,@sum,@last_buy,@created)
+  `);
+  const info = stmt.run({
+    name:     b.name     ?? "",
+    phone:    b.phone    ?? "",
+    email:    b.email    ?? "",
+    gender:   b.gender   ?? "",
+    birthday: b.birthday ?? "",
+    comment:  b.comment  ?? "",
+    debt:     b.debt     ?? 0,
+    repaid:   b.repaid   ?? 0,
+    grp:      b.group    ?? "",
+    sum:      b.sum      ?? 0,
+    last_buy: b.lastBuy  ?? null,
+    created:  b.created  ?? new Date().toLocaleDateString("ru-RU"),
+  });
+  const row = db.prepare("SELECT * FROM clients WHERE id = ?").get(info.lastInsertRowid);
+  res.json(dbClientToClient(row));
+});
+
+app.patch("/api/clients/:id", (req, res) => {
+  const b = req.body;
+  db.prepare(`
+    UPDATE clients SET
+      name=@name, phone=@phone, email=@email, gender=@gender,
+      birthday=@birthday, comment=@comment, debt=@debt,
+      repaid=@repaid, grp=@grp, sum=@sum, last_buy=@last_buy
+    WHERE id=@id
+  `).run({
+    id:       req.params.id,
+    name:     b.name     ?? "",
+    phone:    b.phone    ?? "",
+    email:    b.email    ?? "",
+    gender:   b.gender   ?? "",
+    birthday: b.birthday ?? "",
+    comment:  b.comment  ?? "",
+    debt:     b.debt     ?? 0,
+    repaid:   b.repaid   ?? 0,
+    grp:      b.group    ?? "",
+    sum:      b.sum      ?? 0,
+    last_buy: b.lastBuy  ?? null,
+  });
+  const row = db.prepare("SELECT * FROM clients WHERE id=?").get(req.params.id);
+  res.json(dbClientToClient(row));
+});
+
+app.delete("/api/clients/:id", (req, res) => {
+  db.prepare("DELETE FROM clients WHERE id=?").run(req.params.id);
+  res.json({ ok: true });
+});
+
+function dbClientToClient(r: any) {
+  return {
+    id:        r.id,
+    name:      r.name,
+    phone:     r.phone,
+    email:     r.email,
+    gender:    r.gender,
+    birthday:  r.birthday,
+    comment:   r.comment,
+    debt:      r.debt,
+    repaid:    r.repaid,
+    group:     r.grp,
+    sum:       r.sum,
+    lastBuy:   r.last_buy,
+    createdAt: 0,
+    created:   r.created,
+  };
+}
+
+// ─── PRODUCTS ────────────────────────────────────────────────────────────────
+
+app.get("/api/products", (_, res) => {
+  const rows = db.prepare("SELECT * FROM products ORDER BY id ASC").all();
+  res.json(rows);
+});
+
+app.post("/api/products", (req, res) => {
+  const b = req.body;
+  const stmt = db.prepare(`
+    INSERT INTO products (art,name,cat,qty,retail,opt,cost,barcode)
+    VALUES (@art,@name,@cat,@qty,@retail,@opt,@cost,@barcode)
+  `);
+  const info = stmt.run({
+    art:     b.art     ?? "",
+    name:    b.name    ?? "",
+    cat:     b.cat     ?? "",
+    qty:     b.qty     ?? 0,
+    retail:  b.retail  ?? 0,
+    opt:     b.opt     ?? 0,
+    cost:    b.cost    ?? 0,
+    barcode: b.barcode ?? "",
+  });
+  const row = db.prepare("SELECT * FROM products WHERE id=?").get(info.lastInsertRowid);
+  res.json(row);
+});
+
+app.patch("/api/products/:id", (req, res) => {
+  const b = req.body;
+  db.prepare(`
+    UPDATE products SET
+      name=@name, cat=@cat, qty=@qty,
+      retail=@retail, opt=@opt, cost=@cost, barcode=@barcode
+    WHERE id=@id
+  `).run({ id: req.params.id, name:b.name, cat:b.cat, qty:b.qty, retail:b.retail, opt:b.opt, cost:b.cost, barcode:b.barcode });
+  const row = db.prepare("SELECT * FROM products WHERE id=?").get(req.params.id);
+  res.json(row);
+});
+
+app.delete("/api/products/:id", (req, res) => {
+  db.prepare("DELETE FROM products WHERE id=?").run(req.params.id);
+  res.json({ ok: true });
+});
+
+// ─── SALES ───────────────────────────────────────────────────────────────────
+
+app.get("/api/sales", (_, res) => {
+  const rows = db.prepare("SELECT * FROM sales ORDER BY id DESC").all();
+  res.json(rows.map(dbSaleToSale));
+});
+
+app.post("/api/sales", (req, res) => {
+  const b = req.body;
+  const stmt = db.prepare(`
+    INSERT INTO sales
+      (rcp_id,date,time,type,product_id,p_name,art,qty,price,total,cost,profit,pay,pt,discount,client_id,note)
+    VALUES
+      (@rcp_id,@date,@time,@type,@product_id,@p_name,@art,@qty,@price,@total,@cost,@profit,@pay,@pt,@discount,@client_id,@note)
+  `);
+  const info = stmt.run({
+    rcp_id:     b.rcpId     ?? "",
+    date:       b.date      ?? "",
+    time:       b.time      ?? "",
+    type:       b.type      ?? "продажа",
+    product_id: b.productId ?? 0,
+    p_name:     b.pName     ?? "",
+    art:        b.art       ?? "",
+    qty:        b.qty       ?? 1,
+    price:      b.price     ?? 0,
+    total:      b.total     ?? 0,
+    cost:       b.cost      ?? 0,
+    profit:     b.profit    ?? 0,
+    pay:        b.pay       ?? "cash",
+    pt:         b.pt        ?? "retail",
+    discount:   b.discount  ?? 0,
+    client_id:  b.clientId  ?? "",
+    note:       b.note      ?? "",
+  });
+
+  // Списываем остаток товара
+  if (b.productId) {
+    db.prepare("UPDATE products SET qty = MAX(0, qty - ?) WHERE id = ?")
+      .run(b.qty ?? 1, b.productId);
+  }
+
+  // Обновляем сумму покупок клиента
+  if (b.clientId) {
+    db.prepare("UPDATE clients SET sum = sum + ?, last_buy = ? WHERE id = ?")
+      .run(b.total ?? 0, b.date, b.clientId);
+  }
+
+  const row = db.prepare("SELECT * FROM sales WHERE id=?").get(info.lastInsertRowid);
+  res.json(dbSaleToSale(row));
+});
+
+function dbSaleToSale(r: any) {
+  return {
+    id:        r.id,
+    rcpId:     r.rcp_id,
+    date:      r.date,
+    time:      r.time,
+    type:      r.type,
+    productId: r.product_id,
+    pName:     r.p_name,
+    art:       r.art,
+    qty:       r.qty,
+    price:     r.price,
+    total:     r.total,
+    cost:      r.cost,
+    profit:    r.profit,
+    pay:       r.pay,
+    pt:        r.pt,
+    discount:  r.discount,
+    clientId:  r.client_id,
+    note:      r.note,
+  };
+}
+
+// ─── KASSA OPS ────────────────────────────────────────────────────────────────
+
+app.get("/api/kassa-ops", (_, res) => {
+  const rows = db.prepare("SELECT * FROM kassa_ops ORDER BY id DESC").all();
+  res.json(rows.map((r: any) => ({ id:r.id, tp:r.tp, sum:r.sum, stat:r.stat, date:r.date, cashier:r.cashier })));
+});
+
+app.post("/api/kassa-ops", (req, res) => {
+  const b = req.body;
+  const info = db.prepare(`
+    INSERT INTO kassa_ops (tp,sum,stat,date,cashier)
+    VALUES (@tp,@sum,@stat,@date,@cashier)
+  `).run({ tp:b.tp, sum:b.sum, stat:b.stat ?? "", date:b.date, cashier:b.cashier ?? "Test Owner" });
+  const row = db.prepare("SELECT * FROM kassa_ops WHERE id=?").get(info.lastInsertRowid);
+  res.json(row);
+});
+
+// ─── Start ────────────────────────────────────────────────────────────────────
+
+const PORT = process.env.PORT || 4000;
+app.listen(PORT, () => {
+  console.log(`✅ CRM API running on :${PORT}`);
+  console.log(`✅ DB: ${DB_PATH}`);
+});
