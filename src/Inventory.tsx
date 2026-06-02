@@ -14,9 +14,15 @@ import type { Product, Supplier } from "./App";
 export function PageCatalog({
   products,
   setProducts,
+  apiPostProduct,
+  apiPatchProduct,
+  apiDeleteProduct,
 }: {
-  products:    Product[];
-  setProducts: (fn: (prev: Product[]) => Product[]) => void;
+  products:         Product[];
+  setProducts:      (fn: (prev: Product[]) => Product[]) => void;
+  apiPostProduct:   (b: any) => Promise<any>;
+  apiPatchProduct:  (id: number, b: any) => Promise<any>;
+  apiDeleteProduct: (id: number) => Promise<void>;
 }) {
   const [q,         setQ]         = useState("");
   const [tab,       setTab]       = useState("all");
@@ -58,13 +64,12 @@ export function PageCatalog({
     { k: "zero",     l: `Нулевой остаток (${products.filter(p => p.qty === 0).length})` },
   ];
 
-  function addProduct() {
+  // ── addProduct — POST в API ───────────────────────────────────────
+  async function addProduct() {
     if (!nP.name || !nP.retail) return;
-    setProducts(prev => [
-      ...prev,
-      {
-        id:      Date.now(),
-        art:     String(10000 + prev.length + 1),
+    try {
+      const saved = await apiPostProduct({
+        art:     String(10000 + products.length + 1),
         name:    nP.name,
         cat:     nP.cat || "Другое",
         qty:     Number(nP.qty)    || 0,
@@ -72,19 +77,34 @@ export function PageCatalog({
         opt:     Number(nP.opt)    || 0,
         cost:    Number(nP.cost)   || 0,
         barcode: nP.barcode || "",
-      },
-    ]);
-    setNP({ name: "", cat: "", qty: "", retail: "", opt: "", cost: "", barcode: "" });
-    setShowAdd(false);
+      });
+      setProducts(prev => [...prev, saved]);
+      setNP({ name: "", cat: "", qty: "", retail: "", opt: "", cost: "", barcode: "" });
+      setShowAdd(false);
+    } catch (e: any) {
+      alert(`Ошибка: ${e.message}`);
+    }
   }
 
-  function saveEdit(p: Product) {
-    setProducts(prev => prev.map(x => (x.id === p.id ? p : x)));
-    setShowEdit(null);
+  // ── saveEdit — PATCH ──────────────────────────────────────────────
+  async function saveEdit(p: Product) {
+    try {
+      const saved = await apiPatchProduct(p.id, p);
+      setProducts(prev => prev.map(x => (x.id === p.id ? saved : x)));
+      setShowEdit(null);
+    } catch (e: any) {
+      alert(`Ошибка: ${e.message}`);
+    }
   }
 
-  function deleteProduct(id: number) {
-    setProducts(prev => prev.filter(p => p.id !== id));
+  // ── deleteProduct — DELETE ────────────────────────────────────────
+  async function deleteProduct(id: number) {
+    try {
+      await apiDeleteProduct(id);
+      setProducts(prev => prev.filter(p => p.id !== id));
+    } catch (e: any) {
+      alert(`Ошибка: ${e.message}`);
+    }
   }
 
   return (
@@ -108,44 +128,21 @@ export function PageCatalog({
 
       <div style={{ padding: "12px 14px" }}>
 
-        {/* Статистика */}
         {showStats && (
           <Grid2>
-            <StatCard
-              label="Товаров"
-              value={products.length}
-              sub="Всего в каталоге"
-              ico="📦"
-            />
-            <StatCard
-              label="Товарных единиц"
-              value={fmt(totQty)}
-              sub="Сумма остатков"
-              ico="📚"
-            />
-            <StatCard
-              label="Сумма по цене поставки"
-              value={`${fmt(totCost)} ₸`}
-              sub="Стоимость склада"
-              ico="🛒"
-            />
-            <StatCard
-              label="Сумма по цене продажи"
-              value={`${fmt(totRetail)} ₸`}
-              sub="Потенциальная выручка"
-              ico="📈"
-            />
+            <StatCard label="Товаров"               value={products.length}        sub="Всего в каталоге"      ico="📦" />
+            <StatCard label="Товарных единиц"        value={fmt(totQty)}            sub="Сумма остатков"         ico="📚" />
+            <StatCard label="Сумма по цене поставки" value={`${fmt(totCost)} ₸`}   sub="Стоимость склада"       ico="🛒" />
+            <StatCard label="Сумма по цене продажи"  value={`${fmt(totRetail)} ₸`} sub="Потенциальная выручка"  ico="📈" />
           </Grid2>
         )}
 
-        {/* Вкладки */}
         <Tabs
           tabs={tabList}
           active={tab}
           onChange={v => { setTab(v); setPage(1); }}
         />
 
-        {/* Панель действий */}
         <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
           <SearchBar
             value={q}
@@ -161,7 +158,6 @@ export function PageCatalog({
           </button>
         </div>
 
-        {/* Таблица */}
         <div style={{ ...Sc.card, padding: 0, overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 680 }}>
             <thead>
@@ -194,8 +190,7 @@ export function PageCatalog({
                   </td>
                   <td style={Sc.td}>
                     <div style={{
-                      width: 36, height: 36, background: "#f0f0f0",
-                      borderRadius: 7,
+                      width: 36, height: 36, background: "#f0f0f0", borderRadius: 7,
                       display: "flex", alignItems: "center", justifyContent: "center",
                       color: "#ccc", fontSize: 16,
                     }}>
@@ -274,9 +269,7 @@ export function PageCatalog({
             />
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <button style={mkBtn("s", { fontSize: 12 })}>⬇ Скачать</button>
-              <span style={{ fontSize: 12, color: "#aaa" }}>
-                Показать по {PER} ▾
-              </span>
+              <span style={{ fontSize: 12, color: "#aaa" }}>Показать по {PER} ▾</span>
             </div>
           </div>
         </div>
@@ -400,10 +393,10 @@ export function PageCatalog({
             </div>
             {(
               [
-                ["Количество",      "qty",    "number"],
-                ["Розница (₸)",     "retail", "number"],
-                ["Оптом (₸)",       "opt",    "number"],
-                ["Себестоимость (₸)","cost",  "number"],
+                ["Количество",       "qty",    "number"],
+                ["Розница (₸)",      "retail", "number"],
+                ["Оптом (₸)",        "opt",    "number"],
+                ["Себестоимость (₸)", "cost",  "number"],
               ] as [string, keyof Product, string][]
             ).map(([l, k, t]) => (
               <div key={k as string}>
@@ -450,18 +443,11 @@ export function PagePostupleniya() {
         title="Заказы поставщиков"
         sub="Управление заказами и возвратами поставщиков"
         bread="Главная › Склад › Закупки"
-        right={
-          <button style={mkBtn("p", { fontSize: 12 })}>+ Создать</button>
-        }
+        right={<button style={mkBtn("p", { fontSize: 12 })}>+ Создать</button>}
       />
       <div style={{ padding: "12px 14px" }}>
-
-        {/* Переключатель Заказы / Возвраты */}
         <div style={{ display: "flex", marginBottom: 14 }}>
-          {[
-            ["orders",  "Список заказов"],
-            ["returns", "Возвраты заказов"],
-          ].map(([k, l]) => (
+          {[["orders","Список заказов"],["returns","Возвраты заказов"]].map(([k, l]) => (
             <button
               key={k}
               onClick={() => setTab(k)}
@@ -470,8 +456,7 @@ export function PagePostupleniya() {
                 cursor: "pointer", fontSize: 13, fontWeight: 600,
                 background: tab === k ? OR : "#f0f0f0",
                 color: tab === k ? "#fff" : "#555",
-                borderRadius:
-                  k === "orders" ? "6px 0 0 6px" : "0 6px 6px 0",
+                borderRadius: k === "orders" ? "6px 0 0 6px" : "0 6px 6px 0",
               }}
             >
               {l}
@@ -479,7 +464,6 @@ export function PagePostupleniya() {
           ))}
         </div>
 
-        {/* Подфильтры */}
         <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
           {subTabs.map(({ k, l }) => (
             <button
@@ -497,7 +481,6 @@ export function PagePostupleniya() {
           ))}
         </div>
 
-        {/* Поиск */}
         <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
           <SearchBar value="" onChange={() => {}} placeholder="ID, наименование поставщика" />
           <button style={mkBtn("s", { fontSize: 12 })}>▾ Фильтры</button>
@@ -534,13 +517,10 @@ export function PageRevision() {
         title="Инвентаризация"
         bread="Главная › Склад › Ревизия"
         right={
-          <button style={mkBtn("p", { fontSize: 12 })}>
-            + Новая инвентаризация
-          </button>
+          <button style={mkBtn("p", { fontSize: 12 })}>+ Новая инвентаризация</button>
         }
       />
       <div style={{ padding: "12px 14px" }}>
-
         <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
           <SearchBar value={q} onChange={setQ} placeholder="ID, наименование, магазин..." />
           <button style={mkBtn("s", { fontSize: 12 })}>▾ Фильтры</button>
@@ -593,11 +573,7 @@ export function PageRevision() {
               ))}
             </tbody>
           </table>
-
-          {shown.length === 0 && (
-            <EmptyState icon="📋" title="Инвентаризаций нет" />
-          )}
-
+          {shown.length === 0 && <EmptyState icon="📋" title="Инвентаризаций нет" />}
           <div style={{
             padding: "8px 14px",
             display: "flex", justifyContent: "space-between",
@@ -632,7 +608,6 @@ export function PageTransfer() {
         }
       />
       <div style={{ padding: "12px 14px" }}>
-
         <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
           <SearchBar value={q} onChange={setQ} placeholder="ID, наименование, магазин" />
           <button style={mkBtn("s", { fontSize: 12 })}>▾ Фильтры</button>
@@ -675,11 +650,7 @@ export function PageTransfer() {
               ))}
             </tbody>
           </table>
-
-          {shown.length === 0 && (
-            <EmptyState icon="🚚" title="Перемещений нет" />
-          )}
-
+          {shown.length === 0 && <EmptyState icon="🚚" title="Перемещений нет" />}
           <div style={{
             padding: "8px 14px",
             display: "flex", justifyContent: "space-between",
@@ -718,7 +689,6 @@ export function PageRepricing() {
         }
       />
       <div style={{ padding: "12px 14px" }}>
-
         <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
           <SearchBar value={q} onChange={setQ} placeholder="ID, наименование, магазин" />
           <button style={mkBtn("s", { fontSize: 12 })}>▾ Фильтры</button>
@@ -744,21 +714,14 @@ export function PageRepricing() {
                   <td style={{ ...Sc.td, fontSize: 12, color: "#888" }}>{r.date}</td>
                   <td style={Sc.td}>{r.name}</td>
                   <td style={Sc.td}>{r.store}</td>
-                  <td style={Sc.td}>
-                    <span style={mkBadge("or")}>{r.type}</span>
-                  </td>
+                  <td style={Sc.td}><span style={mkBadge("or")}>{r.type}</span></td>
                   <td style={Sc.td}>{r.qty} шт</td>
-                  <td style={Sc.td}>
-                    <span style={mkBadge("gr")}>{r.status}</span>
-                  </td>
+                  <td style={Sc.td}><span style={mkBadge("gr")}>{r.status}</span></td>
                 </tr>
               ))}
             </tbody>
           </table>
-
-          {shown.length === 0 && (
-            <EmptyState icon="🏷" title="Переоценок нет" />
-          )}
+          {shown.length === 0 && <EmptyState icon="🏷" title="Переоценок нет" />}
         </div>
       </div>
     </div>
@@ -785,7 +748,6 @@ export function PageSpisanie() {
         }
       />
       <div style={{ padding: "12px 14px" }}>
-
         <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
           <SearchBar value={q} onChange={setQ} placeholder="ID, наименование, магазин" />
           <button style={mkBtn("s", { fontSize: 12 })}>▾ Фильтры</button>
@@ -817,20 +779,13 @@ export function PageSpisanie() {
                   <td style={{ ...Sc.td, color: "#e74c3c", fontWeight: 600 }}>
                     ↓ {fmt(r.sum)} ₸
                   </td>
-                  <td style={Sc.td}>
-                    <span style={mkBadge("rd")}>{r.type}</span>
-                  </td>
-                  <td style={Sc.td}>
-                    <span style={mkBadge("gr")}>{r.status}</span>
-                  </td>
+                  <td style={Sc.td}><span style={mkBadge("rd")}>{r.type}</span></td>
+                  <td style={Sc.td}><span style={mkBadge("gr")}>{r.status}</span></td>
                 </tr>
               ))}
             </tbody>
           </table>
-
-          {shown.length === 0 && (
-            <EmptyState icon="🗑" title="Списаний нет" />
-          )}
+          {shown.length === 0 && <EmptyState icon="🗑" title="Списаний нет" />}
         </div>
       </div>
     </div>
@@ -908,20 +863,18 @@ export function PageSuppliers({
       />
       <div style={{ padding: "12px 14px" }}>
 
-        {/* Статистика */}
         {showStats && (
           <div style={{
             display: "grid", gridTemplateColumns: "repeat(4, 1fr)",
             gap: 10, marginBottom: 14,
           }}>
-            <StatCard label="Кол-во поставщиков"  value={`${suppliers.length} шт`} />
-            <StatCard label="Общая сумма долга"    value={`${fmt(totalDebt)} ₸`} />
-            <StatCard label="Общая сумма заказов"  value="0 ₸" />
-            <StatCard label="Общая сумма оплат"    value="0 ₸" />
+            <StatCard label="Кол-во поставщиков" value={`${suppliers.length} шт`} />
+            <StatCard label="Общая сумма долга"   value={`${fmt(totalDebt)} ₸`} />
+            <StatCard label="Общая сумма заказов" value="0 ₸" />
+            <StatCard label="Общая сумма оплат"   value="0 ₸" />
           </div>
         )}
 
-        {/* Панель действий */}
         <div style={{ display: "flex", gap: 8, marginBottom: 12, alignItems: "center" }}>
           <SearchBar value={q} onChange={setQ} placeholder="ID, имя, телефон..." />
           <label style={{
@@ -939,7 +892,6 @@ export function PageSuppliers({
           <button style={mkBtn("s", { fontSize: 12 })}>+ Добавить оплату</button>
         </div>
 
-        {/* Таблица */}
         <div style={{ ...Sc.card, padding: 0, overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
@@ -1006,11 +958,9 @@ export function PageSuppliers({
         </div>
       </div>
 
-      {/* Modal: Новый поставщик */}
       {showAdd && (
         <Modal title="Новый поставщик" onClose={() => setShowAdd(false)} width={480}>
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-
             <div>
               <label style={Sc.lbl}>Наименование *</label>
               <input
@@ -1021,7 +971,6 @@ export function PageSuppliers({
                 autoFocus
               />
             </div>
-
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <div>
                 <label style={Sc.lbl}>Телефон</label>
@@ -1042,7 +991,6 @@ export function PageSuppliers({
                 />
               </div>
             </div>
-
             <div>
               <label style={Sc.lbl}>Начальный баланс (₸)</label>
               <input
@@ -1052,7 +1000,6 @@ export function PageSuppliers({
                 style={Sc.inp}
               />
             </div>
-
             <div>
               <label style={Sc.lbl}>Комментарий</label>
               <textarea
@@ -1063,7 +1010,6 @@ export function PageSuppliers({
               />
             </div>
           </div>
-
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 18 }}>
             <button onClick={() => setShowAdd(false)} style={mkBtn("s")}>Отмена</button>
             <button onClick={addSupplier} style={mkBtn()}>Сохранить</button>
